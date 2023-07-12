@@ -1,6 +1,7 @@
 from datetime import datetime
-from pydantic import BaseModel, validators, dataclasses
-from typing import Literal
+from pydantic import HttpUrl, Json, validator
+from sqlmodel import SQLModel, Field, Column, JSON, create_engine
+from typing import Literal, List, Dict
 from uuid import UUID, uuid4
 
 import json
@@ -8,61 +9,56 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from aiolimiter import AsyncLimiter
 from httpx import Request, Response
 
-class BadgerObj(BaseModel):
-    """_summary_
+import logging 
 
-    Args:
-        BaseModel (_type_): _description_
-    """
-    id: UUID = uuid4()
-    createdAt: datetime = datetime.now()
-    modifiedAt: datetime | None
-    isDeleted: bool = False # ! how to handle deleted items and archived items
+
+class BadgerObj(SQLModel):
     
-    def update_moddat(self) -> None:
-        self.modifiedAt = datetime.now()
+    id: int = Field(default=None, primary_key=True)        
+    created_at: datetime = Field(default=datetime.now())
+    modified_at: datetime | None = None
+    is_deleted: bool = Field(default=False, index=True) # ! how to handle deleted items and archived items
+            
+    def updateobj(self) -> None:
+        self.modified_at = datetime.now()
         return None
 
-# class RateLimit(BaseModel):    
-#     amount: int # amount for rate # ! 
-#     period: Literal["second","minute","hour","day","month","year"] # period for rate    
+    # ? what's the relationshp betwen last run and modified at
+    # ? does system updating the limits count as an update?
+    # ! this might not be particularly useful model since only jobs really get modified
+        # only jobs get deleted directly (everything else is cascaded from the job)
 
-class BatchConfig(BaseModel):
-    """The BatchConfig is set on job creation and defines the rules by which batches
-    are generated and its requests are run.
-    """            
-    batchSize: int | None = None
-    asynclimits: tuple[AsyncLimiter,...] | None = None # ! use limits library instead?
-    maxConcur: int = 5    
-    timeout: int = 60
-    maxRetries: int = 3
-    reschedule: bool = True # ! need to make sure that period retry happens only once
+class Job(BadgerObj,table=True):
     
-
-    @validators("maxConcur")
-    def checkmaxconcur(cls,v) ->int:
-        return 1 if v < 1 else v # ? should it return error?
-        
-
-class Job(BadgerObj):
-    
-    lastRunAt: datetime
-    nextRunAt: datetime
-    title: str | None
-    status: Literal["draft","active","inactive"] # TODO    
-    batchConfig: BatchConfig
-    schedule: BackgroundScheduler # ! APScheduler
-    scheduleStartDate: datetime # ?
+    last_run: datetime | None = None
+    next_run: datetime | None = None
+    desc: str | None = None
+    #status: Literal["draft","active","inactive"] = Field(index=True) # ! sqlmodel issue with Literal (might have to use enum)
+    # batch config
+    batch_size: int
+    #asynclimits: List[AsyncLimiter] | None = None # ! should just be the args of AsyncLimiter?
+    n_concur: int = Field(default=5)
+    timeout: int = Field(default=60)
+    retries: int = Field(default=3)
+    reschedule: bool = Field(default=True) # ! need to make sure that period retry happens only once
+    # schedule config
+    #schedule: BackgroundScheduler # ! schedule items might be better as its own class and related
+    start_at: datetime # ?
     repeat: bool = False
-    endDate: datetime | None = None
+    end_date: datetime | None = None
     
-    @validators("startDate")
-    def checkstartdate(cls,v) -> datetime: # ? how to validate if the date is very close?
-        return 
+    @validator("n_concur")
+    def checknconcur(cls,v) ->int:
+        return 1 if v < 1 else v # ? should it return error?
+    
+    @validator("start_at")
+    def checkstartat(cls,v) -> datetime: # ? how to validate if the date is very close?
+        return v
             
-    def run_job(cls):
+    def run_job(self):
         
         # create a batch by pulling rows based on job config
+            # id based on count of existing job batches +1
         
         # update scheduler (if not triggered as now)
         
@@ -70,69 +66,118 @@ class Job(BadgerObj):
         
         pass
     
-    def save_requests(cls):
+    def save_requests(self):
+        
+        pass
+
+
+class Batch(BadgerObj,table=True):
+    job_id: int = Field(index=True)
+    index: int = Field(index=True)
+    run_at: datetime
+    reqspecs: List[int]           
     
-class Batch(BadgerObj):
-    runAt: datetime
-    jobId: UUID
-    requests = tuple[Request, ...]
+    
+    def build_requests() -> list:
+        # criteria to pull reqspecs
+            # incomplete
+        
+        # build_request method
+        
+        pass
+
+    def learn_limits(cls) -> dict:
+        # look for max successfully concurrent at any given time
+        # identify a safe starting rate
+        # return dict of kwargs from the job config
+        
+                
+        
+        pass        
                 
     def run_batch(cls):        
         
-        # receive BatchConfig and apply
+        # receive BatchConfig and apply            
+        
+        # create client
+            # timeout and limits (maxConcur) are provided by Job so they can be added here
+            
+        # iterate build requests
+            
         
         # update runAt
         
-        # run async requests
-        
+        # run async requests (create responses)
+            
         # update requests with status                
+            # post retry store settings to pass to add to response
+        
         
         # save data
         
-        # update BatchConfig to save limits learnt (overwrite settings? store separately and use if exists?)
+        # update job to save limits learnt (overwrite settings? store separately and use if exists?)
+
         
         pass
     
-        # ! Should Batch be a list of objects associated to the Job?
-            # wouldn't need a uuid, it's just indexed by tuple of job batches?
-                # but then how does it get stored in sqlite?
-
-class APIRequest(BadgerObj):
     
-    jobId: UUID
-    index: int
-    request: Request
-    response: Response | None
-    attemptnotes: dict | None
-    status: Literal["Waiting","Retrying Later","Failed","Complete"]
+class RequestSpec(SQLModel,table=True):
     
-    
-class BadgerRequest(BadgerObj,Request):
-    
-    jobId: UUID
-    index: int
-    request: Request    
-    attemptNotes: dict | None
-    status: Literal["Waiting","Retrying Later","Failed","Complete"]
+    job_id: int = Field(primary_key=True)
+    index: int = Field(primary_key=True)
+    method: str
+    url: HttpUrl    
+    params: dict | None = Field(default=None, sa_column=Column(JSON))
+    data: dict | None = Field(default=None, sa_column=Column(JSON))
+    headers: dict | None = Field(default=None, sa_column=Column(JSON))
+    # TODO: files
+    # TODO: cookies
+    # TODO: auth
+    # TODO: proxies
+    # TODO: content        
+    #status: Literal["Waiting","Retrying Later","Failed","Complete"]
     periodRetried: bool = False
     
-class BadgerResponse(BadgerObj,Response):
+    # ? validate that if params included it's not already present in url?
+        
     
-    requestId: UUID    
-    response: Response    
-    attemptnotes: dict | None
-    status: Literal["Waiting","Retrying Later","Failed","Complete"]
+    # validate by creating an httpx request
+    
+    
+    def build_request(self,client) -> Request:
+        
+        request = client.build_request(**self)
+        
+        return request
+    
+    
+    
+class BadgerResponse(SQLModel,table=True):
+    
+    job_id: int = Field(primary_key=True)    
+    reqspec_index: int = Field(primary_key=True)    
+    index: int = Field(primary_key=True)    
+    status_code: int
+    delay_applied: int
+    sent_at: datetime
+    elapsed: float
+    headers: dict = Field(sa_column=Column(JSON))
+    text: str | None = None
+    html: str | None = None
+    json: dict | None = Field(default=None, sa_column=Column(JSON))
+    
+    
+    # ? update reqspec if success?
 
-
-class Notification(BadgerObj):
+class Notification(BadgerObj,table=True):
     
     # Notifications are associated with Jobs and Batches and are generated upon the end of every batch run or 
     
         
     
-    type: Literal["Job","Batch"]
-    relatedId: UUID
-    code: str
+    #type: Literal["Job","Batch"]
+    relatedId: int = Field(index=True)
+    code: str = Field(index=True)
     
     
     def describe(cls) -> str:
@@ -149,4 +194,11 @@ class Notification(BadgerObj):
         
     
     # def send_notification() # send to webhook
-    
+
+engine = create_engine(f"sqlite:///badgerdb.db", echo=True)
+
+def build_db():
+    SQLModel.metadata.create_all(engine)
+
+if __name__=="__main__":    
+    build_db()
