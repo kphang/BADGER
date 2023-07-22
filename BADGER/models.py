@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import HttpUrl, Json, validator
-from sqlmodel import SQLModel, Field, Column, JSON, create_engine, Session, Relationship
+from sqlmodel import SQLModel, Field, Column, JSON, create_engine, Session, Relationship, ForeignKeyConstraint, Index
 from typing import Literal, List, Dict
 from uuid import UUID, uuid4
 
@@ -12,9 +12,11 @@ from httpx import Request, Response
 import logging 
 
 
-class Job(SQLModel,table=True):
-    
-    id: int = Field(default=None, primary_key=True)        
+class BadgerBase(SQLModel):
+    id: int | None = Field(default=None, primary_key=True)
+
+class Job(BadgerBase,table=True):
+        
     created_at: datetime = Field(default=datetime.now())
     modified_at: datetime | None = None
     is_deleted: bool = Field(default=False, index=True)
@@ -61,6 +63,7 @@ class Job(SQLModel,table=True):
         return None
 
 class BatchConfig(SQLModel,table=True):
+    
     job_id: int = Field(foreign_key="job.id", primary_key=True)    
     batch_size: int    
     timeout: int = Field(default=60)
@@ -76,12 +79,19 @@ class BatchConfig(SQLModel,table=True):
     def create(self) -> None:
         pass
 
-class Batch(SQLModel,table=True):
-    job_id: int = Field(foreign_key="job.id", primary_key=True)
-    index: int = Field(primary_key=True) # use default_factory? can we create a general function that takes the object and searches for that object?
+class BatchReqSpec(SQLModel,table=True):
+    batch_id: int = Field(primary_key=True, foreign_key="batch.id")
+    reqspec_id: int = Field(primary_key=True, foreign_key="requestspec.id")
+
+
+class Batch(BadgerBase, table=True):
+    job_id: int = Field(foreign_key="job.id")
+    index: int # use default_factory? can we create a general function that takes the object and searches for that object?
     run_at: datetime
-    reqspec_idxs: List["RequestSpec"] = Relationship(back_populates="requestspec.",link_model="BatchReqSpec")# ! might be better to be a link table so we can use relationships          
-    
+    reqspecs: List["RequestSpec"] = Relationship(back_populates="requestspec.id",link_model=BatchReqSpec)# ! might be better to be a link table so we can use relationships          
+    Index(
+        "job_id", "index", unique=True
+    )
     
     def build_requests() -> list:
         # criteria to pull reqspecs
@@ -126,10 +136,10 @@ class Batch(SQLModel,table=True):
         pass
     
     
-class RequestSpec(SQLModel,table=True):
+class RequestSpec(BadgerBase,table=True):
     
-    job_id: int = Field(foreign_key="job.id", primary_key=True)
-    index: int = Field(primary_key=True) # use default_factory?
+    job_id: int = Field(foreign_key="job.id")
+    index: int # use default_factory?
     method: str
     url: HttpUrl    
     params: dict | None = Field(default=None, sa_column=Column(JSON))
@@ -142,7 +152,10 @@ class RequestSpec(SQLModel,table=True):
     # TODO: content        
     #status: Literal["Waiting","Retrying Later","Failed","Complete"]
     periodRetried: bool = False
-    batches: List[Batch] = Relationship(back_populates="")
+    batches: List[Batch] = Relationship(back_populates="batch.id", link_model=BatchReqSpec)
+    Index(
+        "job_id", "index", unique=True
+    )
     
     # ? validate that if params included it's not already present in url?
         
@@ -163,15 +176,16 @@ class RequestSpec(SQLModel,table=True):
         pass
 
         
-class BatchReqSpec(SQLModel,table=True):
-    job_id: int = Field(primary_key=True, foreign_key="batch.job_id")
     
-class BadgerResponse(SQLModel,table=True):
     
-    job_id: int = Field(foreign_key="job.id", primary_key=True)
-    reqspec_index: int = Field(foreign_key="requestspec.index", primary_key=True)        
-    batch_index: int = Field(foreign_key="batch.index", primary_key=True)
-    index: int = Field(primary_key=True) # use default_factory?
+class BadgerResponse(BadgerBase,table=True):
+    
+    job_id: int = Field(foreign_key="job.id")
+    batch_id: int = Field(foreign_key="batch.id")
+    reqspec_id: int = Field(foreign_key="requestspec.id")
+    reqspec_index: int = Relationship()         # TODO
+    batch_index: int = Relationship()         # TODO
+    index: int # use default_factory?
     status_code: int
     delay_applied: int
     sent_at: datetime
@@ -180,14 +194,17 @@ class BadgerResponse(SQLModel,table=True):
     text: str | None = None
     html: str | None = None
     body_json: dict | None = Field(default=None, sa_column=Column(JSON), alias="json")
+    Index(
+        "reqspec_id", "index", unique=True
+    )
     
     def create(self) -> None:
         pass
     
-    def next_index(self) -> int:
+    # def next_index(self) -> int:
         
-        pass
-    # ? update reqspec if success?
+    #     pass
+    # # ? update reqspec if success?
 
 class Notification(SQLModel,table=True):
     
@@ -196,7 +213,8 @@ class Notification(SQLModel,table=True):
         
     id: int | None = Field(primary_key=True)
     job_id: int = Field(foreign_key="job.id")
-    batch_index: int | None = Field(foreign_key="batch.index", default=None)        
+    batch_id: int = Field(foreign_key="batch.id")
+    batch_index: int | None = Relationship() # TODO
     flag: int = Field(index=True)
     code: str
     
@@ -221,9 +239,9 @@ class Notification(SQLModel,table=True):
     
     # def send_notification() # send to webhook
 
-def next_index(obj,field): # finish typing
-    with Session as session:
-        return session.select(obj).where(obj.field==)
+# def next_index(obj,field): # finish typing
+#     with Session as session:
+#         return session.select(obj).where(obj.field==)
 
 
 engine = create_engine(f"sqlite:///badgerdb.db", echo=True)
