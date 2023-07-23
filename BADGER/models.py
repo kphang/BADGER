@@ -1,7 +1,7 @@
 from datetime import datetime
 from pydantic import HttpUrl, Json, validator
 from sqlmodel import SQLModel, Field, Column, JSON, create_engine, Session, Relationship, ForeignKeyConstraint, Index
-from typing import Literal, List, Dict
+from typing import Literal, List, Optional
 from uuid import UUID, uuid4
 
 import json
@@ -12,22 +12,25 @@ from httpx import Request, Response
 import logging 
 
 
-class BadgerBase(SQLModel):
-    id: int | None = Field(default=None, primary_key=True)
+# class BadgerBase(SQLModel):
+#     id: int | None = Field(default=None, primary_key=True)
 
-class Job(BadgerBase,table=True):
-        
+class Job(SQLModel,table=True):
+    
+    id: Optional[int] = Field(default=None, primary_key=True)    
     created_at: datetime = Field(default=datetime.now())
-    modified_at: datetime | None = None
+    modified_at: Optional[datetime] = None # ? is this useful
     is_deleted: bool = Field(default=False, index=True)
-    desc: str | None = None
+    desc: Optional[str] = None
     #status: Literal["draft","active","inactive"] = Field(index=True) # ? is this needed? sqlmodel issue with Literal (might have to use enum)    
+    batchconfig: "BatchConfig" = Relationship(back_populates="job")
     #schedule: BackgroundScheduler # TODO: after implementing the scheduler's storage
     start_at: datetime # ?
     repeat: bool = False    
-    end_date: datetime | None = None    
-    last_run: datetime | None = None
-    next_run: datetime | None = None        
+    end_date: Optional[datetime] = None
+    last_run: Optional[datetime] = None
+    next_run: Optional[datetime] = None
+    batches: Optional["Batch"] = Relationship(back_populates="job")      
     
     
     
@@ -64,13 +67,14 @@ class Job(BadgerBase,table=True):
 
 class BatchConfig(SQLModel,table=True):
     
-    job_id: int = Field(foreign_key="job.id", primary_key=True)    
+    job_id: int = Field(foreign_key="job.id", primary_key=True)
+    job: Job = Relationship(back_populates="batchconfig")    
     batch_size: int    
-    timeout: int = Field(default=60)
-    retries: int = Field(default=3)
-    reschedule: bool = Field(default=True) # ! need to make sure that period retry happens only once
-    #asynclimits: List[AsyncLimiter] | None = None # ! should just be the args of AsyncLimiter?
-    n_concur: int = Field(default=5)
+    timeout: int = 60
+    retries: int = 3
+    reschedule: bool = Field(default=True, description="Whether failed requests should be tried again on a later date in addition to regular retries")
+    #asynclimits: # TODO: implment after tenacity
+    n_concur: int = 5
 
     @validator("n_concur")
     def checknconcur(cls,v) ->int:
@@ -84,11 +88,13 @@ class BatchReqSpec(SQLModel,table=True):
     reqspec_id: int = Field(primary_key=True, foreign_key="requestspec.id")
 
 
-class Batch(BadgerBase, table=True):
+class Batch(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="job.id")
+    job: Job = Relationship(back_populates="batches")
     index: int # use default_factory? can we create a general function that takes the object and searches for that object?
     run_at: datetime
-    reqspecs: List["RequestSpec"] = Relationship(back_populates="requestspec.id",link_model=BatchReqSpec)# ! might be better to be a link table so we can use relationships          
+    reqspecs: List["RequestSpec"] = Relationship(back_populates="batches",link_model=BatchReqSpec)
     Index(
         "job_id", "index", unique=True
     )
@@ -136,29 +142,31 @@ class Batch(BadgerBase, table=True):
         pass
     
     
-class RequestSpec(BadgerBase,table=True):
-    
+class RequestSpec(SQLModel,table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="job.id")
+    job: Job = Relationship()
     index: int # use default_factory?
-    method: str
+    method: str # enumerate
     url: HttpUrl    
-    params: dict | None = Field(default=None, sa_column=Column(JSON))
-    data: dict | None = Field(default=None, sa_column=Column(JSON))
-    headers: dict | None = Field(default=None, sa_column=Column(JSON))
+    params: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    data: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    headers: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     # TODO: files
     # TODO: cookies
     # TODO: auth
     # TODO: proxies
     # TODO: content        
     #status: Literal["Waiting","Retrying Later","Failed","Complete"]
-    periodRetried: bool = False
-    batches: List[Batch] = Relationship(back_populates="batch.id", link_model=BatchReqSpec)
+    periodRetried: bool | None = None
+    batches: List[Batch] = Relationship(back_populates="reqspecs", link_model=BatchReqSpec)
+    responses: List["BadgerResponse"] = Relationship(back_populates="reqspec")
     Index(
         "job_id", "index", unique=True
     )
     
     # ? validate that if params included it's not already present in url?
-        
+    # TODO: need to make sure that period retry happens only once        
     
     # validate by creating an httpx request
     def create(self) -> None:
@@ -178,22 +186,20 @@ class RequestSpec(BadgerBase,table=True):
         
     
     
-class BadgerResponse(BadgerBase,table=True):
-    
-    job_id: int = Field(foreign_key="job.id")
-    batch_id: int = Field(foreign_key="batch.id")
+class BadgerResponse(SQLModel,table=True):
+
+    id: int | None = Field(default=None, primary_key=True)    
     reqspec_id: int = Field(foreign_key="requestspec.id")
-    reqspec_index: int = Relationship()         # TODO
-    batch_index: int = Relationship()         # TODO
+    reqspec: RequestSpec = Relationship(back_populates="responses")    
     index: int # use default_factory?
     status_code: int
     delay_applied: int
     sent_at: datetime
     elapsed: float
     headers: dict = Field(sa_column=Column(JSON))
-    text: str | None = None
-    html: str | None = None
-    body_json: dict | None = Field(default=None, sa_column=Column(JSON), alias="json")
+    text: Optional[str] = None
+    html: Optional[str] = None
+    body_json: Optional[dict] = Field(default=None, sa_column=Column(JSON), alias="json")
     Index(
         "reqspec_id", "index", unique=True
     )
@@ -207,14 +213,10 @@ class BadgerResponse(BadgerBase,table=True):
     # # ? update reqspec if success?
 
 class Notification(SQLModel,table=True):
-    
-    # Notifications are associated with Jobs and Batches and are generated upon the end of every batch run or 
-    test: str = Field()
-        
-    id: int | None = Field(primary_key=True)
-    job_id: int = Field(foreign_key="job.id")
-    batch_id: int = Field(foreign_key="batch.id")
-    batch_index: int | None = Relationship() # TODO
+          
+    id: Optional[int] = Field(default=None, primary_key=True)
+    job_id: int = Field(foreign_key="job.id")    
+    batch_id: int = Field(foreign_key="batch.id")    
     flag: int = Field(index=True)
     code: str
     
