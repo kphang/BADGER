@@ -30,7 +30,8 @@ class Job(SQLModel,table=True):
     end_date: Optional[datetime] = None
     last_run: Optional[datetime] = None
     next_run: Optional[datetime] = None
-    batches: Optional["Batch"] = Relationship(back_populates="job")      
+    batches: Optional["Batch"] = Relationship(back_populates="job")
+    reqspecs: Optional["RequestSpec"] = Relationship(back_populates="job")     
     
     
     
@@ -145,7 +146,7 @@ class Batch(SQLModel, table=True):
 class RequestSpec(SQLModel,table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="job.id")
-    job: Job = Relationship()
+    job: Job = Relationship(back_populates="reqspecs")
     index: int # use default_factory?
     method: str # enumerate
     url: HttpUrl    
