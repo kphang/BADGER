@@ -19,7 +19,8 @@
 				"njpwerner.autodocstring",
 				"GitHub.vscode-pull-request-github",
 				"qwtel.sqlite-viewer",
-				"ms-python.python"
+				"ms-python.python",
+				"george-alisson.html-preview-vscode"
 			]
 		}
 	},
