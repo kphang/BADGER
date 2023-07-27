@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Create a Job</title>
+    <link href="{{ url_for('static',path='/styles.css') }}" rel="stylesheet">
+    <h1>Create a Job</h1>
+</head>
+
+<style>
+    label {
+        width: 170px;
+        display: inline-block;
+    }    
+</style>
+
+<body>
+    <form method="post" target="_self">
+        <p>* indicates a required field</p><br>
+
+        <label for="desc">Descriptive Title
+            <div class="help-tip">
+                <p>(Optional) Provide a descriptive title for the job to be listed.</p>
+            </div>
+        </label>
+        <input type="text" name="desc" id="desc" size="50"><br><br>
+        
+        <!-- TODO: ADD SCHEDULE FIELDS AFTER IMPLEMENTING SCHEDULER -->
+        
+        <label for="start-at">Start At
+            <div class="help-tip">
+                <p>(Optional) Provide a start date-time for the job to create its first batch. If left blank or in the
+                    past the batch will run immediately upon creation.</p>
+            </div>
+        </label>
+        <input type="datetime-local" name="start-at" id="start-at"><br><br>
+        <label for="reschedule">Repeat On Completion
+            <div class="help-tip">
+                <p>(Optional) Enable if you wish the job to continue after all the requests in the dataset have been processed. (e.g. if used to take daily snapshots)</p>
+            </div> 
+        </label>
+        <input type="checkbox" name="reschedule" id="reschedule"><br><br>
+
+        <h2>Batch Configuration</h2>
+        <label for="batch_size">Batch Size*
+            <div class="help-tip">
+                <p>(Required) Number of requests to run in each batch. If you are using an API with a quota you will want to base your batch size on that amount.</p>
+            </div>
+        </label>
+        <input type="number" name="batch_size" id="batch_size" min="1" required><br><br>
+        
+        <!-- TODO: ADD RATE LIMITS -->
+        
+        <label for="timeout">Timeout (seconds)*
+            <div class="help-tip">
+                <p>(Required) Number of requests to run in each batch. If you are using an API with a quota you will want to base your batch size on that amount.</p>
+            </div>
+        </label>
+        <input type="number" name="timeout" id="timeout" value="60" min="0" required><br><br>
+        <label for="retries">Retries*
+            <div class="help-tip">
+                <p>(Required) Number of times to retry a failed request.</p>
+            </div>
+        </label>
+        <input type="number" name="retries" id="retries" value="3" min="1" required><br><br>
+        <label for="reschedule">Reschedule a Retry
+            <div class="help-tip">
+                <p>(Optional) In addition to the number of retries specified above, schedule one additional retry for a future date.</p>
+            </div>
+        </label>
+        <input type="checkbox" name="reschedule" id="reschedule" value="Yes"><br><br>
+        <label for="n_concur">Max Concurrency*
+            <div class="help-tip">
+                <p>(Required) Number of requests to run concurrently. Higher numbers will allow faster completion but some API's limit the number of concurrent operations. BADGER will automatically lower concurrency in subsequent batches on finding a limit allowed by an API.</p>
+            </div>
+        </label>
+        <input type="number" name="n_concur" id="n_concur" value="5"><br><br>
+        <label for="dataset">Upload file*
+            <div class="help-tip">
+                <p>(Required) Upload a CSV, JSON or Excel file containing the requests to be made.</p>
+            </div>
+        <!-- TODO: IMPROVE FILE INSTRUCTIONS -->
+        </label>
+        <input type="file" name="dataset" id="dataset" required>
+        <!-- TODO: FILE VALIDATION -->
+        <!-- TODO: VIEW FILE SAMPLE -->
+        <p>
+            <input type="submit">
+        </p>
+
+    </form>
+
+</body>
+
+</html>
