@@ -3,7 +3,7 @@ import anyio
 import time
 import httpx
 import logging
-
+# Maybe we can do a linear growth of concurrent requests to identify max concurrency separate from rate limiting.
 # TODO: build request with headers, body, etc
 
 async def send_request(client, method, url):

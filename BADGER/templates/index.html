@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>BADGER</title>
+    <link href="{{ url_for('static',path='/styles.css') }}" rel="stylesheet">
+    <h1>BADGER</h1>
+</head>
+
+<!-- Should we show recently complete as well? Or complete since last login? Need to track logins
+Might be good to track logins since  -->
+
+<body>
+    <h2>Notifications</h2>
+    {{test|safe}}
+    <h2>Active Jobs</h2>
+    {{test2|safe}}
+</body>
+
+<!-- Main page shows notifications and active jobs and summaries
+
+Links to:
+- View All Notifications
+- Create Job
+- View All Jobs -->
+
+

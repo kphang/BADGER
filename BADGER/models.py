@@ -1,8 +1,8 @@
 from datetime import datetime
 from pydantic import HttpUrl, Json, validator
 from sqlmodel import SQLModel, Field, Column, JSON, create_engine, Session, Relationship, ForeignKeyConstraint, Index
-from typing import Literal, List, Optional
-from uuid import UUID, uuid4
+from typing import List, Optional
+from enum import Enum
 
 import json
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -12,8 +12,20 @@ from httpx import Request, Response
 import logging 
 
 
-# class BadgerBase(SQLModel):
-#     id: int | None = Field(default=None, primary_key=True)
+
+class ValidStatuses:
+    # SQLModel causes Literal to throw an error, requiring the use of enums
+    class JobStatus(str, Enum):
+        ACTIVE = "active"
+        COMPLETED = "completed"
+        CANCELLED = "cancelled"
+
+    class ReqSpecStatus(str, Enum):
+        INCOMPLETE = "incomplete"
+        COMPLETE = "complete"
+        FAILED = "failed"
+        RESCHEDULED = "rescheduled"
+
 
 class Job(SQLModel,table=True):
     
@@ -22,16 +34,17 @@ class Job(SQLModel,table=True):
     modified_at: Optional[datetime] = None # ? is this useful
     is_deleted: bool = Field(default=False, index=True)
     desc: Optional[str] = None
-    #status: Literal["draft","active","inactive"] = Field(index=True) # ? is this needed? sqlmodel issue with Literal (might have to use enum)    
+    status: ValidStatuses.JobStatus = Field(index=True)
     batchconfig: "BatchConfig" = Relationship(back_populates="job")
     #schedule: BackgroundScheduler # TODO: after implementing the scheduler's storage
-    start_at: datetime # ?
+    start_at: datetime # ? does this exist on the scheduler
     repeat: bool = False    
-    end_date: Optional[datetime] = None
+    end_at: Optional[datetime] = None # ? might not be needed - or only if repeated    
     last_run: Optional[datetime] = None
     next_run: Optional[datetime] = None
-    batches: Optional["Batch"] = Relationship(back_populates="job")
     reqspecs: Optional["RequestSpec"] = Relationship(back_populates="job")     
+    batches: Optional["Batch"] = Relationship(back_populates="job")
+    
     
     
     
@@ -40,10 +53,21 @@ class Job(SQLModel,table=True):
     def checkstartat(cls,v) -> datetime: # ? how to validate if the date is very close?
         return v
 
+    def __init__(self):
+        
+        
+        pass
+
+    def estimate_enddate(self):
+        # estimate end date (none if repeat (without an end date))
+
+        pass
+
     def create_reqspecs(self,file) -> None:
         # iterate through file
         
         pass
+
             
     def run_job(self):
         
@@ -67,7 +91,10 @@ class Job(SQLModel,table=True):
         return None
 
 class BatchConfig(SQLModel,table=True):
-    
+    # Need to figure out how it gets overwritten based on experience
+    # Need to allow for both experimental and fixed (for cases where rates might be known)
+    # Need to handle inputting multiple rates
+
     job_id: int = Field(foreign_key="job.id", primary_key=True)
     job: Job = Relationship(back_populates="batchconfig")    
     batch_size: int    
@@ -158,7 +185,7 @@ class RequestSpec(SQLModel,table=True):
     # TODO: auth
     # TODO: proxies
     # TODO: content        
-    #status: Literal["Waiting","Retrying Later","Failed","Complete"]
+    status: ValidStatuses.ReqSpecStatus = Field(index=True)
     periodRetried: bool | None = None
     batches: List[Batch] = Relationship(back_populates="reqspecs", link_model=BatchReqSpec)
     responses: List["BadgerResponse"] = Relationship(back_populates="reqspec")
