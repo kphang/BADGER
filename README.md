@@ -45,9 +45,13 @@ Features:
 - To help with development, includes a test site with configuarable limits to send requests
 
 # Installation
+Not yet available
+
+<!--cc/>
 With [Docker](https://www.docker.com) installed, run the following command:
 
     docker run -d kphang/BADGER
+-->
 
 # Planned features
 
